@@ -90,6 +90,7 @@ func (s *Server) Stream(srv pb.Chat_StreamServer) error {
 		log.Error("로그인 해주세요.")
 		return nil
 	}
+	log.Info("새 유저 연결: ", login.Username)
 	s.Connections = append(s.Connections, &connection{Chat_StreamServer: srv, username: login.Username})
 
 	logger := log.WithField("username", login.Username)
