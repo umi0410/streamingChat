@@ -1,6 +1,6 @@
 # Streaming Chat service using GRPC
 
-![assets/preview-2.png](assets/preview-2.png)
+![assets/preview-3.png](assets/preview-3.png)
 
 ## 상상 속의 스트리밍 채팅 서비스
 

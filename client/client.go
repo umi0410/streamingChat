@@ -40,7 +40,7 @@ func (c *ChatClient) Start(ctx context.Context) error{
     if err := c.Login(); err != nil {
         return err
     }
-
+    fmt.Printf("🚀🚀🚀 LOGIN SUCCESSED. Welcome %s !!!", c.Username)
     receiveDone := c.Receive()
     sendDone := c.Send()
     <- receiveDone
@@ -125,7 +125,7 @@ func (c *ChatClient) Receive() <-chan struct{}{
                         time.Sleep(time.Second)
                     }
                 } else{
-                    fmt.Printf("🧐 %8s: %s\n", newMessage.GetMessage().Author, newMessage.GetMessage().Content)
+                    fmt.Printf("|%-8s| %s\n", newMessage.GetMessage().Author, newMessage.GetMessage().Content)
                 }
 
             }
