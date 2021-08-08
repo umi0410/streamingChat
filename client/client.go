@@ -29,12 +29,14 @@ func NewChatClient(username string) *ChatClient{
     }
 }
 
+// Start 는 ChatClient 가 수행해야할 모든 동작들을 시작시킵니다.
+// 각 동작들은 Context가 Cancel되어 Done 상태가 되면 그것을 감지하고
+// 종료됩니다.
 func (c *ChatClient) Start(ctx context.Context) error{
     c.Ctx = ctx
     if err := c.Connect(); err != nil {
         return err
     }
-
     if err := c.Login(); err != nil {
         return err
     }
@@ -47,6 +49,10 @@ func (c *ChatClient) Start(ctx context.Context) error{
     return nil
 }
 
+// Connect 는 Dialing을 비롯한 초기 연결을 담당합니다.
+// 서버와 연결되면 채팅을 주고 받을 수 있는 스트림을 생성하고 저장합니다.
+// 연결에 실패할 경우 특정 시간만큼 대기 후 반복해서 재시도합니다.
+// Context가 Cancel되어 Done 상태인 경우 종료합니다.
 func (c *ChatClient) Connect() error {
     for i := 0;;{
         select {
@@ -75,6 +81,9 @@ func (c *ChatClient) Connect() error {
     }
 }
 
+// Login 은 생성된 Stream으로 첫 번째 요청을 보냅니다.
+// 첫 번째 요청은 채팅 메시지 전송이 아닌 로그인이어야합니다.
+// 따라서 *ChatClient.Send 보다 먼저 호출되어야합니다.
 func (c *ChatClient) Login() error{
     err := c.streamClient.Send(&pb.ChatStream{
         Event: &pb.ChatStream_Login_{
@@ -94,24 +103,31 @@ func (c *ChatClient) Login() error{
     return nil
 }
 
+
+// Receive 는 Concurrently하게 ChatStream으로부터 메시지를 전달받습니다.
+// Context 가 Cancel되어 Done 상태인 경우 종료합니다.
 func (c *ChatClient) Receive() <-chan struct{}{
     done := make(chan struct{})
     go func() {
-        defer c.logger.Debug("Context에 의해..? Receive 종료")
         for {
             select {
             case <-c.Ctx.Done():
+                c.logger.Debug("Context에 의해..? Receive 종료")
                 done <- struct{}{}
                 return
             default:
-                for{
-                    newMessage, err := c.streamClient.Recv()
-                    if err != nil{
-                        c.logger.Error(err)
+                newMessage, err := c.streamClient.Recv()
+                if err != nil{
+                    if c.Ctx.Err() == context.Canceled{
+                        // pass. err is context canceled error
                     } else{
-                        fmt.Printf("🧐 %8s: %s\n", newMessage.GetMessage().Author, newMessage.GetMessage().Content)
+                        c.logger.Error(fmt.Errorf("메시지를 전달받지 못했습니다: %w",  err))
+                        time.Sleep(time.Second)
                     }
+                } else{
+                    fmt.Printf("🧐 %8s: %s\n", newMessage.GetMessage().Author, newMessage.GetMessage().Content)
                 }
+
             }
         }
     }()
@@ -119,20 +135,21 @@ func (c *ChatClient) Receive() <-chan struct{}{
     return done
 }
 
+// Send 는 Concurrently하게 ChatStream에게 메시지를 전송합니다.
+// Context 가 Cancel되어 Done 상태인 경우 종료합니다.
 func (c *ChatClient) Send() <-chan struct{}{
     done := make(chan struct{})
     go func() {
-        defer c.logger.Debug("Context에 의해..? Send 종료")
         for {
             select{
             case <-c.Ctx.Done():
+                c.logger.Debug("Context에 의해..? Send 종료")
                 done <- struct{}{}
                 return
-            default:
-                c.scanner.Scan()
+            case input := <- c.Scan():
                 err := c.streamClient.Send(&pb.ChatStream{
                     Event: &pb.ChatStream_Message_{
-                        Message: &pb.ChatStream_Message{Author: c.Username, Content: c.scanner.Text()},
+                        Message: &pb.ChatStream_Message{Author: c.Username, Content: input},
                     },
                 })
                 if err != nil {
@@ -143,4 +160,15 @@ func (c *ChatClient) Send() <-chan struct{}{
     }()
 
     return done
+}
+
+// Scan 하는 동안 Block 되지 않고 Context.Done()과 함께 select 문에 놓일 수 있게 함.
+func (c *ChatClient) Scan() <-chan string{
+    input := make(chan string)
+    go func (){
+        c.scanner.Scan()
+        input <- c.scanner.Text()
+    }()
+
+    return input
 }

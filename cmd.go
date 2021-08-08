@@ -1,6 +1,7 @@
 package main
 
 import (
+    "bufio"
     "context"
     "flag"
     "fmt"
@@ -13,6 +14,7 @@ import (
 
 var (
     mode string
+    scanner = bufio.NewScanner(os.Stdin)
 )
 
 func init(){
@@ -23,21 +25,14 @@ func init(){
 
 
 func main() {
-    sigInt := make(chan os.Signal, 10)
-    signal.Notify(sigInt, os.Interrupt)
-    ctx, cancel := context.WithCancel(context.Background())
-    go func() {
-        <- sigInt
-        log.Warning("인터럽트 발생! context를 Cancel합니다.")
-        cancel()
-    }()
+    ctx := WithGracefullyShutDownContext()
 
     if mode == "server" {
-        streamingChat.NewServer().Run(ctx)
+        log.Error(streamingChat.NewChatServer().Start(ctx))
     } else if mode == "client" {
         fmt.Print("Please input your username: ")
-        var username string
-        fmt.Scan(&username)
+        scanner.Scan()
+        username := scanner.Text()
         c := client.NewChatClient(username)
         log.Error(c.Start(ctx))
     } else if mode == "fakeClient" {
@@ -51,4 +46,16 @@ func main() {
         log.Error(flag.Args(), mode)
         panic("Invalid mode, given " + mode)
     }
+}
+
+func WithGracefullyShutDownContext() context.Context{
+    sigInt := make(chan os.Signal, 10)
+    signal.Notify(sigInt, os.Interrupt)
+    ctx, cancel := context.WithCancel(context.Background())
+    go func() {
+        <- sigInt
+        log.Warning("인터럽트 발생! context를 Cancel합니다.")
+        cancel()
+    }()
+    return ctx
 }
