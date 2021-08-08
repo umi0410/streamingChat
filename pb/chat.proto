@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+package chat;
+
+option go_package="github.com/umi0410/streamingChat/pb";
+
+service Chat {
+    rpc Stream(stream ChatStream) returns (stream ChatStream) {}
+}
+
+message ChatStream {
+    oneof Event {
+        Login login = 1;
+        Logout logout = 2;
+        Message message = 3;
+    }
+
+    message Login {
+        string username = 1;
+    }
+
+    message Logout {}
+
+    message Message{
+        string author = 1;
+        string content = 2;
+    }
+}
