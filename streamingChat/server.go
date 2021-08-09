@@ -10,32 +10,35 @@ import (
 	"io"
 	"net"
 	"sync"
+	"time"
 )
 
-type ChatServer  struct{
+type ChatServer struct {
 	pb.UnimplementedChatServer
+	serverAddr     string
 	connectionLock *sync.Mutex
-	Ctx context.Context
-    Connections map[string]*connection
-    NewMessages chan *pb.ChatStream
+	Ctx            context.Context
+	Connections    map[string]*connection
+	NewMessages    chan *pb.ChatStream
 	messageAdapter adapter.MessageAdapter
 }
 
 // connection 은 Chat 서비스의 StreamServer와 유사하게 동작합니다.
 // Embedding을 통해 편리하게 사용할 수 있습니다.
-type connection struct{
+type connection struct {
 	pb.Chat_StreamServer
-	username string
-	logger log.FieldLogger
+	username        string
+	logger          log.FieldLogger
 	gracefulTTLLeft int
 }
 
-func NewChatServer(messageAdapter adapter.MessageAdapter) *ChatServer{
-    return &ChatServer{
-    	Connections: make(map[string]*connection),
-    	NewMessages: make(chan *pb.ChatStream),
-    	connectionLock: new(sync.Mutex),
-    	messageAdapter: messageAdapter,
+func NewChatServer(serverAddr string, messageAdapter adapter.MessageAdapter) *ChatServer {
+	return &ChatServer{
+		serverAddr:     serverAddr,
+		Connections:    make(map[string]*connection),
+		NewMessages:    make(chan *pb.ChatStream),
+		connectionLock: new(sync.Mutex),
+		messageAdapter: messageAdapter,
 	}
 }
 
@@ -44,10 +47,10 @@ func (s *ChatServer) Start(ctx context.Context) error {
 	s.Ctx = ctx
 	srv := grpc.NewServer()
 	pb.RegisterChatServer(srv, s)
-	log.Info("Listening 0.0.0.0:50051")
-	listener, err := net.Listen("tcp", "0.0.0.0:50051")
+	log.Info("Listening ", s.serverAddr)
+	listener, err := net.Listen("tcp", s.serverAddr)
 	if err != nil {
-	    return fmt.Errorf("failed to listen the port: %w", err)
+		return fmt.Errorf("failed to listen the port: %w", err)
 	}
 
 	broadcastDone := s.broadcast()
@@ -61,15 +64,14 @@ func (s *ChatServer) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to serve: %w", err)
 	}
 
-
-	<- broadcastDone
+	<-broadcastDone
 
 	return nil
 }
 
-func (s *ChatServer) broadcast() <-chan struct{}{
+func (s *ChatServer) broadcast() <-chan struct{} {
 	done := make(chan struct{})
-	go func (){
+	go func() {
 		for {
 			select {
 			case <-s.Ctx.Done():
@@ -78,14 +80,16 @@ func (s *ChatServer) broadcast() <-chan struct{}{
 			case result := <-s.messageAdapter.GetNewMessage(s.Ctx):
 				if result.Error != nil {
 					log.Error("메시지 어댑터에서 메시지를 가져오지 못했습니다. ", result.Error)
-				} else{
+					// 잠시 대기하지 않으면 CPU가 불타는 무한 루프에 빠짐.
+					time.Sleep(time.Second)
+				} else {
 					for username, conn := range s.Connections {
 						// author가 아닌 경우에만 메시지 전송
 						if conn.username != result.MessageDTO.Author {
 							tmp := &pb.ChatStream{
 								Event: &pb.ChatStream_Message_{
 									Message: &pb.ChatStream_Message{
-										Author: result.MessageDTO.Author,
+										Author:  result.MessageDTO.Author,
 										Content: result.MessageDTO.Content,
 									},
 								},
@@ -125,15 +129,15 @@ func (s *ChatServer) Stream(srv pb.Chat_StreamServer) error {
 	log.Info("새 유저 연결: ", login.Username)
 	conn := &connection{
 		Chat_StreamServer: srv,
-		username: login.Username,
-		logger: log.WithField("Username", login.Username),
-		gracefulTTLLeft: 5,
+		username:          login.Username,
+		logger:            log.WithField("Username", login.Username),
+		gracefulTTLLeft:   5,
 	}
 	s.appendConnection(conn)
 
 	for {
-		select{
-		case <- s.Ctx.Done():
+		select {
+		case <-s.Ctx.Done():
 			if 0 < conn.gracefulTTLLeft {
 				conn.logger.Warn("Context는 종료되었지만 gracefulTTL이 남아있어 잠시 기다립니다.")
 			} else {
@@ -144,13 +148,13 @@ func (s *ChatServer) Stream(srv pb.Chat_StreamServer) error {
 			}
 			conn.gracefulTTLLeft -= 1
 
-		case stream := <- s.Recv(conn):
+		case stream := <-s.Recv(conn):
 			if message := stream.GetMessage(); message != nil {
 				conn.logger.Infof("Server) Client sent a message. %s", message)
 				s.messageAdapter.PublishMessage(s.Ctx, message)
 			} else if logout := stream.GetLogout(); logout != nil {
 				conn.logger.Info("Logout")
-			} else{
+			} else {
 				conn.logger.Info("입력받은 것이 없습니다.")
 				return nil
 			}
@@ -162,17 +166,17 @@ func (s *ChatServer) Stream(srv pb.Chat_StreamServer) error {
 	}
 }
 
-func (s *ChatServer) Recv(conn *connection) <-chan *pb.ChatStream{
+func (s *ChatServer) Recv(conn *connection) <-chan *pb.ChatStream {
 	done := make(chan *pb.ChatStream)
-	go func (){
+	go func() {
 		stream, err := conn.Recv()
-		if err != nil{
+		if err != nil {
 			if err == io.EOF {
 				conn.logger.Warning("EOF 에러 발생. 연결 끊어진 듯: ", err)
-			} else if conn.Context().Err() == context.Canceled{
+			} else if conn.Context().Err() == context.Canceled {
 				conn.logger.Info("요청이 종료되었습니다")
 				s.removeConnection(conn)
-			} else{
+			} else {
 				conn.logger.Error("알 수 없는 에러네요: ", err)
 			}
 		}

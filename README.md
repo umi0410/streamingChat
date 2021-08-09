@@ -1,6 +1,6 @@
 # Streaming Chat service using GRPC
 
-![assets/preview-3.png](assets/preview-3.png)
+![k9s](https://user-images.githubusercontent.com/33250725/128679725-27e3d8d8-601b-4b6a-8e2c-081531e29fff.gif)
 
 ## 상상 속의 스트리밍 채팅 서비스
 
@@ -36,3 +36,4 @@ $ protoc --go_out=. --go_opt=paths=source_relative \
     --go-grpc_out=. --go-grpc_opt=paths=source_relative \
     pb/chat.proto
 ```
+

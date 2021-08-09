@@ -1,9 +1,9 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: straming-chat-server-cm
+  name: server-cm
   labels:
-    app: straming-chat-server
+    app: server
 data: {}
 
 ---
@@ -11,30 +11,35 @@ data: {}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: straming-chat-server
+  name: server
   labels:
-    app: straming-chat-server
+    app: server
 spec:
-  replicas: 5
+  replicas: 3
   revisionHistoryLimit: 0
   selector:
     matchLabels:
-      app: straming-chat-server
+      app: server
   template:
     metadata:
       labels:
-        app: straming-chat-server
+        app: server
     spec:
-      terminationGracePeriodSeconds: 10
+      terminationGracePeriodSeconds: 0
       containers:
-      - name: gRPC
-        image: umi0410/streamingChat
+      - name: grpc
+        image: umi0410/streaming-chat
         imagePullPolicy: Always
-        args: ["server", "--redisAddr", "redis:50051"]
+        args:
+          - "-redisAddr"
+          - "redis:56379"
+          - "-serverAddr"
+          - "0.0.0.0:55555"
+          - "server"
         env: []
         ports:
-        - name: gRPC
-          containerPort: 50051
+        - name: grpc
+          containerPort: 55555
 
 ---
 
@@ -42,14 +47,14 @@ apiVersion: v1
 kind: Service
 metadata:
   labels:
-    app: straming-chat-server
-  name: straming-chat-server
+    app: server
+  name: server
 spec:
   selector:
-    app: straming-chat-server
+    app: server
   ports:
-  - name: gRPC
+  - name: grpc
     port: 55555
     protocol: TCP
-    targetPort: straming-chat-server
+    targetPort: grpc
   type: ClusterIP
