@@ -6,17 +6,23 @@ import (
     "flag"
     "fmt"
     log "github.com/sirupsen/logrus"
+    "github.com/umi0410/streamingChat/adapter"
     "github.com/umi0410/streamingChat/client"
     "github.com/umi0410/streamingChat/streamingChat"
     "math/rand"
     "os"
     "os/signal"
+    "strconv"
     "time"
+    "github.com/brianvoe/gofakeit/v6"
 )
 
 var (
     mode string
     scanner = bufio.NewScanner(os.Stdin)
+    redisAddr = flag.String("redisAddr", "localhost:6379", "접속할 Redis의 주소와 포트")
+    username = flag.String("username", "", "클라이언트로 이용 시 채팅방에 접속할 username")
+    randomUsername = flag.Bool("randomUsername", false, "username을 랜덤으로 부여받을 것인지")
 )
 
 func init(){
@@ -31,12 +37,19 @@ func main() {
     ctx := WithGracefullyShutDownContext()
 
     if mode == "server" {
-        log.Error(streamingChat.NewChatServer().Start(ctx))
+        messageAdapter := adapter.NewRedisMessageAdapter(ctx, *redisAddr, "chatroom")
+        log.Error(streamingChat.NewChatServer(messageAdapter).Start(ctx))
     } else if mode == "client" {
-        fmt.Print("Please input your username: ")
-        scanner.Scan()
-        username := scanner.Text()
-        c := client.NewChatClient(username + getRandomAvatar())
+        if *randomUsername {
+            *username += getRandomUsername()
+        }
+        if *username == "" {
+            fmt.Print("Please input your username: ")
+            scanner.Scan()
+            *username += scanner.Text()
+        }
+
+        c := client.NewChatClient(*username + getRandomAvatar())
         log.Error(c.Start(ctx))
     } else if mode == "fakeClient" {
         for _, fakeName := range []string{"Dummy", "Mike", "Coke", "Pizza", "Pasta"}{
@@ -68,4 +81,8 @@ func getRandomAvatar() string{
 		"🚀", "🐵", "🦍", "🐶", "🐺", "🐱", "🦁", "🐅", "🐷", "🐑", "🍎", "🍐", "🍑", "🍅", "🥝", "🥦",
 	}
 	return randomAvatars[rand.Intn(len(randomAvatars))]
+}
+
+func getRandomUsername() string{
+    return gofakeit.LastName() + strconv.Itoa(rand.Intn(100))
 }

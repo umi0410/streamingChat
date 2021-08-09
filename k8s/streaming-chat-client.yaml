@@ -1,0 +1,35 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: straming-chat-client-cm
+  labels:
+    app: straming-chat-client
+data: {}
+
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: straming-chat-client
+  labels:
+    app: straming-chat-client
+spec:
+  replicas: 30
+  revisionHistoryLimit: 0
+  selector:
+    matchLabels:
+      app: straming-chat-client
+  template:
+    metadata:
+      labels:
+        app: straming-chat-client
+    spec:
+      terminationGracePeriodSeconds: 10
+      containers:
+      - name: gRPC
+        image: umi0410/streamingChat
+        imagePullPolicy: Always
+        args: ["client", "--randomUsername"]
+        env: []
+

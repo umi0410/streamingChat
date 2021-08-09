@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	log "github.com/sirupsen/logrus"
+	"github.com/umi0410/streamingChat/adapter"
 	"github.com/umi0410/streamingChat/pb"
 	"google.golang.org/grpc"
 	"io"
@@ -17,6 +18,7 @@ type ChatServer  struct{
 	Ctx context.Context
     Connections map[string]*connection
     NewMessages chan *pb.ChatStream
+	messageAdapter adapter.MessageAdapter
 }
 
 // connection 은 Chat 서비스의 StreamServer와 유사하게 동작합니다.
@@ -28,11 +30,12 @@ type connection struct{
 	gracefulTTLLeft int
 }
 
-func NewChatServer() *ChatServer{
+func NewChatServer(messageAdapter adapter.MessageAdapter) *ChatServer{
     return &ChatServer{
     	Connections: make(map[string]*connection),
     	NewMessages: make(chan *pb.ChatStream),
     	connectionLock: new(sync.Mutex),
+    	messageAdapter: messageAdapter,
 	}
 }
 
@@ -49,11 +52,16 @@ func (s *ChatServer) Start(ctx context.Context) error {
 
 	broadcastDone := s.broadcast()
 
+	go func() {
+		<-s.Ctx.Done()
+		srv.GracefulStop()
+	}()
+
 	if err := srv.Serve(listener); err != nil {
 		return fmt.Errorf("failed to serve: %w", err)
 	}
 
-	srv.GracefulStop()
+
 	<- broadcastDone
 
 	return nil
@@ -67,23 +75,34 @@ func (s *ChatServer) broadcast() <-chan struct{}{
 			case <-s.Ctx.Done():
 				done <- struct{}{}
 				return
-			case message := <-s.NewMessages:
-				for username, conn := range s.Connections {
-					// author가 아닌 경우에만 메시지 전송
-					if conn.username != message.GetMessage().Author {
-						if err := conn.Send(message); err != nil {
-							if conn.Context().Err() != context.Canceled {
-								log.WithField("Username", username).Error("failed to send message: ", err)
+			case result := <-s.messageAdapter.GetNewMessage(s.Ctx):
+				if result.Error != nil {
+					log.Error("메시지 어댑터에서 메시지를 가져오지 못했습니다. ", result.Error)
+				} else{
+					for username, conn := range s.Connections {
+						// author가 아닌 경우에만 메시지 전송
+						if conn.username != result.MessageDTO.Author {
+							tmp := &pb.ChatStream{
+								Event: &pb.ChatStream_Message_{
+									Message: &pb.ChatStream_Message{
+										Author: result.MessageDTO.Author,
+										Content: result.MessageDTO.Content,
+									},
+								},
 							}
-							s.connectionLock.Lock()
-							// 여기서 삭제하면 for 문은 어떻게 되는거지
-							// 참고: https://stackoverflow.com/questions/23229975/is-it-safe-to-remove-selected-keys-from-map-within-a-range-loop
-							delete(s.Connections, username)
-							s.connectionLock.Unlock()
+
+							if err := conn.Send(tmp); err != nil {
+								if conn.Context().Err() != context.Canceled {
+									log.WithField("Username", username).Error("failed to send message: ", err)
+								}
+								// 여기서 삭제하면 for 문은 어떻게 되는거지
+								// 참고: https://stackoverflow.com/questions/23229975/is-it-safe-to-remove-selected-keys-from-map-within-a-range-loop
+								s.removeConnection(s.Connections[username])
+							}
 						}
 					}
-
 				}
+
 			}
 		}
 	}()
@@ -110,9 +129,7 @@ func (s *ChatServer) Stream(srv pb.Chat_StreamServer) error {
 		logger: log.WithField("Username", login.Username),
 		gracefulTTLLeft: 5,
 	}
-	s.connectionLock.Lock()
-	s.Connections[login.Username] = conn
-	s.connectionLock.Unlock()
+	s.appendConnection(conn)
 
 	for {
 		select{
@@ -121,9 +138,7 @@ func (s *ChatServer) Stream(srv pb.Chat_StreamServer) error {
 				conn.logger.Warn("Context는 종료되었지만 gracefulTTL이 남아있어 잠시 기다립니다.")
 			} else {
 				conn.logger.Warn("gracefulTTL이 0보다 작아져 요청을 끊습니다.")
-				s.connectionLock.Lock()
-				delete(s.Connections, conn.username)
-				s.connectionLock.Unlock()
+				s.removeConnection(conn)
 
 				return nil
 			}
@@ -132,11 +147,11 @@ func (s *ChatServer) Stream(srv pb.Chat_StreamServer) error {
 		case stream := <- s.Recv(conn):
 			if message := stream.GetMessage(); message != nil {
 				conn.logger.Infof("Server) Client sent a message. %s", message)
-				s.NewMessages <- stream
+				s.messageAdapter.PublishMessage(s.Ctx, message)
 			} else if logout := stream.GetLogout(); logout != nil {
 				conn.logger.Info("Logout")
 			} else{
-				conn.logger.Error("요청 끊어진 듯")
+				conn.logger.Info("입력받은 것이 없습니다.")
 				return nil
 			}
 			if s.Ctx.Err() == context.Canceled {
@@ -155,7 +170,8 @@ func (s *ChatServer) Recv(conn *connection) <-chan *pb.ChatStream{
 			if err == io.EOF {
 				conn.logger.Warning("EOF 에러 발생. 연결 끊어진 듯: ", err)
 			} else if conn.Context().Err() == context.Canceled{
-				conn.logger.Warning("종료된 Context입니다: ", err)
+				conn.logger.Info("요청이 종료되었습니다")
+				s.removeConnection(conn)
 			} else{
 				conn.logger.Error("알 수 없는 에러네요: ", err)
 			}
@@ -164,4 +180,16 @@ func (s *ChatServer) Recv(conn *connection) <-chan *pb.ChatStream{
 	}()
 
 	return done
+}
+
+func (s *ChatServer) appendConnection(conn *connection) {
+	s.connectionLock.Lock()
+	s.Connections[conn.username] = conn
+	s.connectionLock.Unlock()
+}
+
+func (s *ChatServer) removeConnection(conn *connection) {
+	s.connectionLock.Lock()
+	delete(s.Connections, conn.username)
+	s.connectionLock.Unlock()
 }

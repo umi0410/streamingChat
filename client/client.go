@@ -7,6 +7,7 @@ import (
     log "github.com/sirupsen/logrus"
     "github.com/umi0410/streamingChat/pb"
     "google.golang.org/grpc"
+    "io"
     "os"
     "time"
 )
@@ -120,7 +121,24 @@ func (c *ChatClient) Receive() <-chan struct{}{
                 if err != nil{
                     if c.Ctx.Err() == context.Canceled{
                         // pass. err is context canceled error
-                    } else{
+                        // it is okay.
+                    } else if err == io.EOF{
+                        c.logger.Info("연결 중이던 서버와 연결이 끊겼습니다. 다시 연결합니다.")
+                        if err := c.Connect(); err != nil {
+                            c.logger.Error("서버에 재연결을 실패했습니다. ", err)
+                        } else {
+                            c.logger.Info("서버에 재연결했습니다.")
+                        }
+                        if err := c.Login(); err != nil {
+                            c.logger.Error("서버에 재로그인을 실패했습니다. ", err)
+                        } else {
+                            c.logger.Info("서버에 다시 로그인했습니다.")
+                        }
+
+                        if err != nil {
+                            time.Sleep(time.Second)
+                        }
+                    } else {
                         c.logger.Error(fmt.Errorf("메시지를 전달받지 못했습니다: %w",  err))
                         time.Sleep(time.Second)
                     }
