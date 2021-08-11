@@ -1,6 +1,8 @@
 # Streaming Chat service using GRPC
 
-![k9s](https://user-images.githubusercontent.com/33250725/128679725-27e3d8d8-601b-4b6a-8e2c-081531e29fff.gif)
+<p align="center">
+  <img src="https://user-images.githubusercontent.com/33250725/128679725-27e3d8d8-601b-4b6a-8e2c-081531e29fff.gif"/>
+</p>
 
 ## 상상 속의 스트리밍 채팅 서비스
 
@@ -64,7 +66,11 @@ $ protoc --go_out=. --go_opt=paths=source_relative \
 
 ### Redis의 TTL을 이용한 실시간 인기 단어
 
-> 사실 별로 필요한 기능은 아닌데 ㅎㅎ.. 다양한 Redis의 유즈케이스가 궁금해서 상상해봤다.
+> 사실 별로 필요한 기능은 아닌데 ㅎㅎ.. 다양한 Redis의 유즈케이스가 궁금해서 상상해봤다. 근데 채팅 데이터셋을 바탕으로 형태소 분석을 해서 인기 단어를 카운트하는 것은 아니고 그냥 공백으로 Split 시켜서 단어로 카운트 하다보니 그냥 동사들이 인기 단어로 선정되긴했다.  
+
+<p align="center">
+  <img src="https://user-images.githubusercontent.com/33250725/128963610-75e67646-3186-447c-bde0-aa8db864ec86.png"/>
+</p>
 
 보통 Realtime leaderboard라는 컨셉으로 Sorted Set을 이용해 리얼타임 랭킹 서비스를 소개하는 것 같은데
 이 경우는 전체 기간 동안에 대한 Ranking만 제공하고 특정 기간 동안의 랭킹은 제공할 수 없다. Sorted Set에 TTL이 없기 때문이기도 하고,
@@ -74,7 +80,7 @@ $ protoc --go_out=. --go_opt=paths=source_relative \
 * 그럼 특정 기간(예를 들어 지난 1분) 간의 인기 단어를 보기 위해선 TTL을 1분으로 설정해두고 남아있는 단어 이벤트만으로 집계하면 된다.
 * 단점은 Sorted Set을 이용할 때는 랭킹 순위 자체가 데이터를 저장할 때 저장된다는 것이었는데, 이 방법을 이용하면 정렬은 매 쿼리 때마다 애플리케이션에서 담당해야한다.  
 * `hotWord@{{word}}@{{username}}: 0` 이런 식으로 Key를 설정하고 empty value를 담은 뒤 `hotWord@{{word}}@*`에 해당하는 key의 개수를 세어 정렬하면 된다.
-* _"Keeping Redis simple"_ 이라는 철학 때문인지 다소 `@` 로 'howWord 랭킹 산출에 사용되는 키이며 `{{word}}`라는 단어에 대한 `{{username` 유저의 채팅 기록이다'
+* _"Keeping Redis simple"_ 이라는 철학 때문인지 다소 `@` 로 'howWord 랭킹 산출에 사용되는 키이며 `{{word}}`라는 단어에 대한 `{{username}}` 유저의 채팅 기록이다'
   라는 의미를 나타내는 것이 다소 깔끔하진 않아보일 수 있지만 뭐 RDB나 다른 DB를 썼으면 TTL을 위해 또 다른 이런 저런 고생을 했어야할 것 같긴 하니까 Redis를 용서해주는 걸로 하겠다.
 
 ## 참고 자료

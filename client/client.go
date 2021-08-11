@@ -83,7 +83,7 @@ func (c *ChatClient) Start(ctx context.Context) error {
 // 연결에 실패할 경우 특정 시간만큼 대기 후 반복해서 재시도합니다.
 // Context가 Cancel되어 Done 상태인 경우 종료합니다.
 func (c *ChatClient) Connect() error {
-	for i := 0; ;i++{
+	for i := 0; ; i++ {
 		select {
 		case <-c.Ctx.Done():
 			return fmt.Errorf("서버에 연결하지 못했습니다")

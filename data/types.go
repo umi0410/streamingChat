@@ -5,6 +5,11 @@ type MessageDTO struct {
 	Content string
 }
 
+type HotWordDTO struct {
+	Word      string
+	Frequency int
+}
+
 //func (message *pb.ChatStream_Message_) MarshallBinary(data interface{}) {
 //
 //}

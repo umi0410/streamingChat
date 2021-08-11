@@ -152,6 +152,7 @@ func (s *ChatServer) Stream(srv pb.Chat_StreamServer) error {
 			if message := stream.GetMessage(); message != nil {
 				conn.logger.Infof("Server) Client sent a message. %s", message)
 				s.messageAdapter.PublishMessage(s.Ctx, message)
+				s.messageAdapter.AddNewWordEvent(s.Ctx, message.Content, conn.username, time.Second*10)
 			} else if logout := stream.GetLogout(); logout != nil {
 				conn.logger.Info("Logout")
 			} else {

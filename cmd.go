@@ -9,7 +9,8 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/umi0410/streamingChat/adapter"
 	"github.com/umi0410/streamingChat/client"
-	"github.com/umi0410/streamingChat/streamingChat"
+	"github.com/umi0410/streamingChat/hotWord"
+	"github.com/umi0410/streamingChat/server"
 	"math/rand"
 	"os"
 	"os/signal"
@@ -64,6 +65,9 @@ func main() {
 		}
 		c := client.NewChatClient(*serverAddr, *sendRandomChatMessage, "Chocolate")
 		log.Error(c.Start(ctx))
+	} else if mode == "hotWordCalculator" {
+		c := hotWord.NewHotWordCalculator(ctx, adapter.NewRedisMessageAdapter(ctx, *redisAddr, "chatroom"))
+		log.Error(c.Run())
 	} else {
 		log.Error(flag.Args(), mode)
 		panic("Invalid mode, given " + mode)
